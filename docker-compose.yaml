@@ -1,0 +1,57 @@
+services:
+  app:
+    build:
+      context: app
+      dockerfile: dockerfile
+    env_file:
+      - ./app/config/development.env
+    networks:
+      - sqlserver
+
+  sqlserver:
+    build: 
+      context: sql-server
+      dockerfile: dockerfile
+    ports:
+      - "1433:1433"
+    env_file:
+      - ./sql-server/config/development.env
+    volumes:
+      # Mount Bak file for sample database
+      - ./sql-server/data_source/AdventureWorksLT2017.bak:/var/opt/mssql/backup/AdventureWorksLT2017.bak
+    networks:
+      - sqlserver
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Strongpassword1 -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      retries: 10
+      start_period: 10s
+      timeout: 3s
+
+  sqlserver.configurator:
+    build:
+      context: sql-server
+      dockerfile: dockerfile
+    env_file:
+      - ./sql-server/config/development.env
+    volumes:
+      # Mount script file to run at start up
+      - ./sql-server/scripts:/docker-entrypoint-initdb.d/
+    networks:
+      - sqlserver
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    command: >
+      bash -c '
+      cd /docker-entrypoint-initdb.d/;
+      /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P Strongpassword1 -d master -i "01_init_database.sql";
+      /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P Strongpassword1 -d master -i "02_init_security.sql";
+      /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P Strongpassword1 -d master -i "03_init_CDC.sql";
+      /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P Strongpassword1 -d master -i "04_init_procedures.sql";
+      '
+      
+  
+networks:
+  sqlserver:
+    driver: bridge
